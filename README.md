@@ -2,101 +2,296 @@
 
 This Python-based CLI tool allows you to maintain a local inventory of Dell systems by combining live hardware data (via SNMP) with official warranty information (via the Dell Support API). It stores all data in a lightweight SQLite database for quick lookups and filtering.
 
-🚀 Features
-Warranty Tracking: Automatically fetches expiration dates from the Dell API using Service Tags.
+## 🚀 Features
 
-Hardware Discovery: Uses SNMP to poll iDRAC and BIOS version information directly from the hardware.
+- **Warranty Tracking:** Automatically fetches expiration dates from the Dell API using Service Tags
+- **Hardware Discovery:** Uses SNMP to poll iDRAC and BIOS version information directly from the hardware
+- **Data Refresh:** Update both SNMP hardware data AND warranty information for existing systems
+- **Version Comparison:** List and filter systems based on version strings (e.g., find all hosts with BIOS version less than 2.1.0)
+- **Flexible Output:** View inventory in a formatted grid table or export to JSON for automation
+- **Verbose Logging:** Optional verbose (`-v`) and debug (`-d`) modes for detailed progress tracking
+- **SQLite Backend:** No heavy database setup required; everything is stored in a local .db file
+- **Command Aliases:** Short aliases for all commands (e.g., `a` for add, `li` for list, `rf` for refresh)
 
-Version Comparison: List and filter systems based on version strings (e.g., find all hosts with BIOS version less than 2.1.0).
+## 🛠️ Prerequisites
 
-Flexible Output: View inventory in a formatted grid table or export to JSON for automation.
+- **Python 3.8+** (tested with Python 3.14)
+- **Dell TechDirect API Credentials:** You must have a Client ID and Secret from Dell to access warranty data
+- **SNMP Enabled:** The target Dell systems must have SNMP enabled on their iDRACs (default community: public)
+- **Network Access:** Ability to reach Dell systems via `mgmt-<hostname>` naming convention
 
-SQLite Backend: No heavy database setup required; everything is stored in a local .db file.
+## 📦 Installation
 
-🛠️ Prerequisites
-Python 3.8+
-
-Dell TechDirect API Credentials: You must have a Client ID and Secret from Dell to access warranty data.
-
-SNMP Enabled: The target Dell systems must have SNMP enabled on their iDRACs (default community: public).
-
-📦 Installation
-1) Clone the repository:
+**1) Clone the repository:**
 ```
 git clone https://github.com/yourusername/dell-warranty-manager.git
 cd dell-warranty-manager
 ```
 
-2) Install dependencies:
+**2) Create a virtual environment (recommended):**
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
+
+**3) Install dependencies:**
+```bash
 pip install -r requirements.txt
 ```
 
-3) Configure environment variables:
+**4) Configure environment variables:**
 Create a .env file in the root directory:
-```
+```bash
+# Required: Dell TechDirect API credentials
 CLIENT_ID=your_dell_client_id
 CLIENT_SECRET=your_dell_client_secret
+
+# Optional: SNMP community string (defaults to 'public')
+SNMP_COMMUNITY=public
+
+# Optional: Enable debug logging via environment (can also use -d flag)
 DEBUG=false
 ```
 
-📖 Usage
-The script uses subcommands for different operations: add, edit, lookup, list, and remove.
+**Note:** Obtain Dell API credentials from [Dell TechDirect](https://techdirect.dell.com)
 
-1. Add a New System
+## 📖 Usage
+
+The script uses subcommands for different operations: **add**, **edit**, **lookup**, **list**, **refresh**, and **remove**.
+
+### 1. Add a New System
 This polls the iDRAC for firmware/BIOS versions and the Dell API for warranty.
-```
+```bash
+# Add a system (full command)
 python3 dracs.py add --svctag ABC1234 --target server01.example.com --model R660
+
+# Using alias and verbose output
+python3 dracs.py -v a -s ABC1234 -t server01.example.com -m R660
+
+# With custom database path
+python3 dracs.py -w /path/to/custom.db add -s ABC1234 -t server01 -m R650
 ```
 
-2. List Inventory
+### 2. List Inventory
 View all systems. You can filter by model, expiration, or version.
-```
+```bash
 # List all systems
 python3 dracs.py list
+
+# List all systems (using alias)
+python3 dracs.py li
+
+# List systems by model
+python3 dracs.py list --model R660
 
 # List systems expiring in the next 30 days
 python3 dracs.py list --expires_in 30
 
-# List systems with a BIOS version older than 2.5.1
-python3 dracs.py list --bios_lt 2.5.1
+# List systems with hostname matching a pattern
+python3 dracs.py list --regex "server%"
+
+# Filter by BIOS version
+python3 dracs.py list --bios_lt 2.5.1        # BIOS less than 2.5.1
+python3 dracs.py list --bios_le 2.5.1        # BIOS less than or equal to 2.5.1
+python3 dracs.py list --bios_gt 2.5.1        # BIOS greater than 2.5.1
+python3 dracs.py list --bios_ge 2.5.1        # BIOS greater than or equal to 2.5.1
+python3 dracs.py list --bios_eq 2.5.1        # BIOS equal to 2.5.1
+
+# Filter by iDRAC firmware version
+python3 dracs.py list --idrac_lt 6.10.30.00  # iDRAC less than 6.10.30.00
+python3 dracs.py list --idrac_ge 6.10.30.00  # iDRAC greater than or equal
+
+# Output as JSON for automation
+python3 dracs.py list --json
+
+# Complex filter: R660 systems with old BIOS expiring soon
+python3 dracs.py list --model R660 --bios_lt 2.5.0 --expires_in 60
+
+# Lookup specific system in list format
+python3 dracs.py list --svctag ABC1234
+python3 dracs.py list --target server01.example.com
 ```
 
-3. Lookup a Specific System
-```
+### 3. Lookup a Specific System
+Retrieve detailed information about a single system.
+```bash
+# Lookup by service tag with all fields
 python3 dracs.py lookup --svctag ABC1234 --full
+
+# Lookup by hostname
+python3 dracs.py lookup --target server01.example.com --full
+
+# Show only BIOS version
+python3 dracs.py lookup --svctag ABC1234 --bios
+
+# Show only iDRAC firmware version
+python3 dracs.py lookup -s ABC1234 --idrac
+
+# Using alias
+python3 dracs.py l -t server01.example.com --full
 ```
 
-4. Update/Edit a System
-Update the BIOS/iDRAC version in the database by re-polling the hardware.
-```
+### 4. Edit a System
+Update specific fields in the database by re-polling hardware or changing model.
+```bash
+# Update both BIOS and iDRAC versions from SNMP
 python3 dracs.py edit --target server01.example.com --bios --idrac
+
+# Update by service tag
+python3 dracs.py edit --svctag ABC1234 --bios --idrac
+
+# Update only BIOS version
+python3 dracs.py edit -t server01 --bios
+
+# Update only iDRAC firmware version
+python3 dracs.py edit -s ABC1234 --idrac
+
+# Change model name
+python3 dracs.py edit -s ABC1234 --model R650
+
+# Using alias with verbose output
+python3 dracs.py -v e -t server01 --bios --idrac
 ```
 
-5. Remove a System
-```
-python3 main.py remove --svctag ABC1234
+### 5. Refresh System Data
+Refresh both SNMP data (BIOS/iDRAC versions) AND warranty information from Dell API.
+This is useful when service contracts are renewed or firmware is updated.
+```bash
+# Refresh by service tag
+python3 dracs.py refresh --svctag ABC1234
+
+# Refresh by hostname
+python3 dracs.py refresh --target server01.example.com
+
+# Using alias with verbose output to see progress
+python3 dracs.py -v rf -s ABC1234
+
+# With debug output
+python3 dracs.py -d refresh -t server01
 ```
 
-⚙️ Arguments Summary
+### 6. Remove a System
+Delete a system from the database.
+```bash
+# Remove by service tag
+python3 dracs.py remove --svctag ABC1234
 
-| Global Argument | Description                                                      |
+# Remove by hostname
+python3 dracs.py remove --target server01.example.com
+
+# Using alias
+python3 dracs.py r -s ABC1234
+```
+
+### Common Usage Patterns
+
+```bash
+# Initial setup: Add all your systems
+python3 dracs.py -v add -s ABC1234 -t server01.example.com -m R660
+python3 dracs.py -v add -s DEF5678 -t server02.example.com -m R650
+python3 dracs.py -v add -s GHI9012 -t server03.example.com -m R660
+
+# Check what's expiring soon
+python3 dracs.py list --expires_in 30
+
+# Find systems that need firmware updates
+python3 dracs.py list --idrac_lt 6.10.30.00
+
+# After updating firmware, refresh the data
+python3 dracs.py -v refresh -t server01.example.com
+
+# After renewing support contracts, refresh warranty
+python3 dracs.py -v refresh -s ABC1234
+
+# Generate JSON report for external tools
+python3 dracs.py list --json > inventory.json
+
+# Find all R660 models
+python3 dracs.py list --model R660
+
+# Detailed troubleshooting with debug output
+python3 dracs.py -d add -s ABC1234 -t server01 -m R660
+```
+
+## ⚙️ Command Reference
+
+### Global Arguments (apply to all commands)
+
+| Argument        | Description                                                      |
 | --------------- | ---------------------------------------------------------------- |
-| -d, --debug     | Enable verbose debug output.                                     |
-| -w, --warranty  | Path to a custom SQLite database file (defaults to warranty.db). |
+| `-h, --help`    | Show help message and exit                                       |
+| `-d, --debug`   | Enable debug mode (most detailed output, includes SQL queries)   |
+| `-v, --verbose` | Enable verbose output (shows INFO level progress messages)       |
+| `-w, --warranty`| Path to a custom SQLite database file (defaults to warranty.db)  |
 
+### Command Aliases
 
-Mode Aliases
+| Full Command | Alias | Required Arguments            | Optional Arguments                    |
+| ------------ | ----- | ----------------------------- | ------------------------------------- |
+| `add`        | `a`   | `-s/--svctag` `-t/--target` `-m/--model` | None                           |
+| `edit`       | `e`   | `-s/--svctag` OR `-t/--target`| `--bios` `--idrac` `--model`          |
+| `lookup`     | `l`   | `-s/--svctag` OR `-t/--target`| `--full` `--bios` `--idrac`           |
+| `list`       | `li`  | None                          | `--model` `--regex` `--expires_in` `--svctag` `--target` `--bios_*` `--idrac_*` `--json` |
+| `refresh`    | `rf`  | `-s/--svctag` OR `-t/--target`| None                                  |
+| `remove`     | `r`   | `-s/--svctag` OR `-t/--target`| None                                  |
 
-| Full Command | Alias |
-| ------------ | ----- |
-| add          | a     |
-| edit         | e     |
-| lookup       | l     |
-| remove       | r     |
-| list         | li    |
+### Filter Options for `list` Command
 
-🛡️ License
+**BIOS Version Filters:**
+- `--bios_lt VERSION` - BIOS less than VERSION
+- `--bios_le VERSION` - BIOS less than or equal to VERSION  
+- `--bios_gt VERSION` - BIOS greater than VERSION
+- `--bios_ge VERSION` - BIOS greater than or equal to VERSION
+- `--bios_eq VERSION` - BIOS equal to VERSION
+
+**iDRAC Firmware Filters:**
+- `--idrac_lt VERSION` - iDRAC less than VERSION
+- `--idrac_le VERSION` - iDRAC less than or equal to VERSION
+- `--idrac_gt VERSION` - iDRAC greater than or equal to VERSION
+- `--idrac_ge VERSION` - iDRAC greater than VERSION
+- `--idrac_eq VERSION` - iDRAC equal to VERSION
+
+**Other Filters:**
+- `--model MODEL` - Filter by server model (e.g., R650, R660)
+- `--regex PATTERN` - Filter hostname by SQL LIKE pattern
+- `--expires_in DAYS` - Systems with warranty expiring in N days
+- `--json` - Output results as JSON instead of table
+
+## 📝 Tips & Troubleshooting
+
+**Using Verbose Output:**
+Always use `-v` when running commands interactively to see progress:
+```bash
+python3 dracs.py -v add -s ABC1234 -t server01 -m R660
+```
+
+**SNMP Connectivity:**
+- Ensure the iDRAC interface is reachable as `mgmt-<hostname>`
+- Default SNMP community is `public` (configure via `SNMP_COMMUNITY` env var)
+- Port 161 must be accessible
+
+**Dell API Issues:**
+- Verify credentials in `.env` file
+- Check service tag is valid (5-7 alphanumeric characters)
+- Ensure system has an active Dell warranty/support contract
+
+**Database Location:**
+- Default: `warranty.db` in the same directory as `dracs.py`
+- Custom: Use `-w /path/to/custom.db` flag
+- The database is created automatically on first use
+
+**Debug Mode:**
+Use `-d` flag to see detailed debugging including:
+- SQL queries and parameters
+- SNMP OID requests and responses  
+- Dell API request/response details
+- Internal data structures
+
+```bash
+python3 dracs.py -d add -s ABC1234 -t server01 -m R660
+```
+
+## 🛡️ License
 This project is licensed under the GNU General Public License v3.0 (GPLv3).
 
 Why GPLv3?
