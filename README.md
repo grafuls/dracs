@@ -18,7 +18,7 @@ This Python-based CLI tool allows you to maintain a local inventory of Dell syst
 - **Python 3.8+** (tested with Python 3.14)
 - **Dell TechDirect API Credentials:** You must have a Client ID and Secret from Dell to access warranty data
 - **SNMP Enabled:** The target Dell systems must have SNMP enabled on their iDRACs (default community: public)
-- **Network Access:** Ability to reach Dell systems via `mgmt-<hostname>` naming convention
+- **Network Access:** Ability to reach Dell iDRAC interfaces via DNS (naming convention configured via DRACS_DNS_STRING and DRACS_DNS_MODE)
 
 ## 📦 Installation
 
@@ -46,6 +46,19 @@ Create a .env file in the root directory:
 CLIENT_ID=your_dell_client_id
 CLIENT_SECRET=your_dell_client_secret
 
+# Required: iDRAC DNS configuration
+# DRACS_DNS_STRING: String to add to hostname for iDRAC FQDN
+# DRACS_DNS_MODE: How to add the string ('prefix' or 'suffix')
+#
+# Examples:
+# Prefix mode: "mgmt-" + "host01.example.com" = "mgmt-host01.example.com"
+DRACS_DNS_STRING=mgmt-
+DRACS_DNS_MODE=prefix
+#
+# Suffix mode: "host01" + "-mm" + ".example.com" = "host01-mm.example.com"
+# DRACS_DNS_STRING=-mm
+# DRACS_DNS_MODE=suffix
+
 # Optional: SNMP community string (defaults to 'public')
 SNMP_COMMUNITY=public
 
@@ -57,7 +70,7 @@ DEBUG=false
 
 ## 📖 Usage
 
-The script uses subcommands for different operations: **add**, **edit**, **lookup**, **list**, **refresh**, and **remove**.
+The script uses subcommands for different operations: **add**, **discover**, **edit**, **lookup**, **list**, **refresh**, and **remove**.
 
 ### 1. Add a New System
 This polls the iDRAC for firmware/BIOS versions and the Dell API for warranty.
@@ -72,8 +85,27 @@ python3 dracs.py -v a -s ABC1234 -t server01.example.com -m R660
 python3 dracs.py -w /path/to/custom.db add -s ABC1234 -t server01 -m R650
 ```
 
-### 2. List Inventory
-View all systems. You can filter by model, expiration, or version.
+### 2. Discover a System
+Automatically discover service tag and model information via SNMP, then optionally add to database.
+```bash
+# Discover a system (prompts for confirmation)
+python3 dracs.py discover --target server01.example.com
+
+# Using alias
+python3 dracs.py d -t server01.example.com
+
+# Auto-add without prompting
+python3 dracs.py discover --target server01.example.com --add
+
+# With verbose output
+python3 dracs.py -v discover -t server01.example.com
+
+# Discover and auto-add using alias
+python3 dracs.py d -t server01.example.com --add
+```
+
+### 3. List Inventory
+View all systems. You can filter by model, expiration, or version. Results are always sorted by hostname.
 ```bash
 # List all systems
 python3 dracs.py list
@@ -104,6 +136,10 @@ python3 dracs.py list --idrac_ge 6.10.30.00  # iDRAC greater than or equal
 # Output as JSON for automation
 python3 dracs.py list --json
 
+# Output only hostnames (one per line) - useful for scripting
+python3 dracs.py list --host-only
+python3 dracs.py list --model R650 --host-only
+
 # Complex filter: R660 systems with old BIOS expiring soon
 python3 dracs.py list --model R660 --bios_lt 2.5.0 --expires_in 60
 
@@ -112,7 +148,7 @@ python3 dracs.py list --svctag ABC1234
 python3 dracs.py list --target server01.example.com
 ```
 
-### 3. Lookup a Specific System
+### 4. Lookup a Specific System
 Retrieve detailed information about a single system.
 ```bash
 # Lookup by service tag with all fields
@@ -131,7 +167,7 @@ python3 dracs.py lookup -s ABC1234 --idrac
 python3 dracs.py l -t server01.example.com --full
 ```
 
-### 4. Edit a System
+### 5. Edit a System
 Update specific fields in the database by re-polling hardware or changing model.
 ```bash
 # Update both BIOS and iDRAC versions from SNMP
@@ -153,7 +189,7 @@ python3 dracs.py edit -s ABC1234 --model R650
 python3 dracs.py -v e -t server01 --bios --idrac
 ```
 
-### 5. Refresh System Data
+### 6. Refresh System Data
 Refresh both SNMP data (BIOS/iDRAC versions) AND warranty information from Dell API.
 This is useful when service contracts are renewed or firmware is updated.
 ```bash
@@ -170,7 +206,7 @@ python3 dracs.py -v rf -s ABC1234
 python3 dracs.py -d refresh -t server01
 ```
 
-### 6. Remove a System
+### 7. Remove a System
 Delete a system from the database.
 ```bash
 # Remove by service tag
@@ -191,6 +227,13 @@ python3 dracs.py -v add -s ABC1234 -t server01.example.com -m R660
 python3 dracs.py -v add -s DEF5678 -t server02.example.com -m R650
 python3 dracs.py -v add -s GHI9012 -t server03.example.com -m R660
 
+# Or discover and add systems automatically
+python3 dracs.py -v discover -t server04.example.com --add
+python3 dracs.py -v d -t server05.example.com --add
+
+# Discover a system but confirm before adding
+python3 dracs.py discover -t server06.example.com
+
 # Check what's expiring soon
 python3 dracs.py list --expires_in 30
 
@@ -205,6 +248,10 @@ python3 dracs.py -v refresh -s ABC1234
 
 # Generate JSON report for external tools
 python3 dracs.py list --json > inventory.json
+
+# Get list of all hostnames for scripting (e.g., to feed to xargs or a loop)
+python3 dracs.py list --host-only > hostnames.txt
+for host in $(python3 dracs.py list --model R650 --host-only); do echo "Processing $host"; done
 
 # Find all R660 models
 python3 dracs.py list --model R660
@@ -229,9 +276,10 @@ python3 dracs.py -d add -s ABC1234 -t server01 -m R660
 | Full Command | Alias | Required Arguments            | Optional Arguments                    |
 | ------------ | ----- | ----------------------------- | ------------------------------------- |
 | `add`        | `a`   | `-s/--svctag` `-t/--target` `-m/--model` | None                           |
+| `discover`   | `d`   | `-t/--target`                 | `--add`                               |
 | `edit`       | `e`   | `-s/--svctag` OR `-t/--target`| `--bios` `--idrac` `--model`          |
 | `lookup`     | `l`   | `-s/--svctag` OR `-t/--target`| `--full` `--bios` `--idrac`           |
-| `list`       | `li`  | None                          | `--model` `--regex` `--expires_in` `--svctag` `--target` `--bios_*` `--idrac_*` `--json` |
+| `list`       | `li`  | None                          | `--model` `--regex` `--expires_in` `--svctag` `--target` `--bios_*` `--idrac_*` `--json` `--host-only` |
 | `refresh`    | `rf`  | `-s/--svctag` OR `-t/--target`| None                                  |
 | `remove`     | `r`   | `-s/--svctag` OR `-t/--target`| None                                  |
 
@@ -255,7 +303,10 @@ python3 dracs.py -d add -s ABC1234 -t server01 -m R660
 - `--model MODEL` - Filter by server model (e.g., R650, R660)
 - `--regex PATTERN` - Filter hostname by SQL LIKE pattern
 - `--expires_in DAYS` - Systems with warranty expiring in N days
+
+**Output Options:**
 - `--json` - Output results as JSON instead of table
+- `--host-only` - Output only hostnames, one per line (useful for scripting)
 
 ## 📝 Tips & Troubleshooting
 
@@ -266,7 +317,7 @@ python3 dracs.py -v add -s ABC1234 -t server01 -m R660
 ```
 
 **SNMP Connectivity:**
-- Ensure the iDRAC interface is reachable as `mgmt-<hostname>`
+- Ensure the iDRAC interface is reachable using the DNS naming configured in `DRACS_DNS_STRING` and `DRACS_DNS_MODE`
 - Default SNMP community is `public` (configure via `SNMP_COMMUNITY` env var)
 - Port 161 must be accessible
 

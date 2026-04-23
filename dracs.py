@@ -121,6 +121,59 @@ def validate_version(version: Optional[str]) -> bool:
     return True
 
 
+def build_idrac_hostname(hostname: str) -> str:
+    """
+    Builds the iDRAC hostname from the target hostname using environment variables.
+
+    Uses DRACS_DNS_STRING and DRACS_DNS_MODE to determine how to construct the iDRAC FQDN.
+    - prefix mode: DRACS_DNS_STRING + hostname (e.g., "mgmt-" + "host01.example.com" = "mgmt-host01.example.com")
+    - suffix mode: hostname_part + DRACS_DNS_STRING + domain (e.g., "host01" + "-mm" + ".example.com" = "host01-mm.example.com")
+
+    Args:
+        hostname: The target system hostname
+
+    Returns:
+        The constructed iDRAC hostname
+
+    Raises:
+        ValidationError: If DRACS_DNS_MODE or DRACS_DNS_STRING are not properly configured
+    """
+    dns_string = os.getenv("DRACS_DNS_STRING")
+    dns_mode = os.getenv("DRACS_DNS_MODE")
+
+    if not dns_string:
+        raise ValidationError(
+            "DRACS_DNS_STRING environment variable is required. "
+            "Set it in your .env file (e.g., DRACS_DNS_STRING=mgmt-)"
+        )
+
+    if not dns_mode:
+        raise ValidationError(
+            "DRACS_DNS_MODE environment variable is required. "
+            "Set it to either 'prefix' or 'suffix' in your .env file"
+        )
+
+    if dns_mode not in ["prefix", "suffix"]:
+        raise ValidationError(
+            f"DRACS_DNS_MODE must be either 'prefix' or 'suffix', got: {dns_mode}"
+        )
+
+    if dns_mode == "prefix":
+        # Simple prefix: dns_string + hostname
+        return dns_string + hostname
+    else:
+        # Suffix mode: extract hostname part, add suffix, then add domain
+        if "." in hostname:
+            # Split into hostname and domain
+            parts = hostname.split(".", 1)
+            hostname_part = parts[0]
+            domain_part = parts[1]
+            return f"{hostname_part}{dns_string}.{domain_part}"
+        else:
+            # No domain, just add suffix to hostname
+            return hostname + dns_string
+
+
 @contextmanager
 def get_db_connection(dbpath):
     """
@@ -319,7 +372,7 @@ async def add_dell_warranty(
     Logic for the 'add' command. Fetches hardware versions via SNMP and
     warranty dates via API, then saves the new record to the local DB.
     """
-    idrac_host = "mgmt-" + hostname
+    idrac_host = build_idrac_hostname(hostname)
     community_string = os.getenv("SNMP_COMMUNITY", "public")
     BIOS_OID = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8.1.1"
     IDRAC_FW_OID = "1.3.6.1.4.1.674.10892.5.1.1.8.0"
@@ -476,7 +529,7 @@ async def edit_dell_warranty(
 
     if len(results) == 1:
         hostname = results[0][1]
-        idrac_host = "mgmt-" + hostname
+        idrac_host = build_idrac_hostname(hostname)
         community_string = os.getenv("SNMP_COMMUNITY", "public")
         BIOS_OID = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8.1.1"
         IDRAC_FW_OID = "1.3.6.1.4.1.674.10892.5.1.1.8.0"
@@ -662,11 +715,12 @@ async def list_dell_warranty(
     idrac_eq: Optional[str],
     expires_in: Optional[str],
     printjson: bool,
+    host_only: bool,
     warranty: str,
 ) -> None:
     """
     Logic for the 'list' command. Performs complex SQL queries based on filters
-    (model, regex, expiration time) and outputs results in JSON or Grid table format.
+    (model, regex, expiration time) and outputs results in JSON, Grid table, or hostname-only format.
     """
     db_initialize(warranty)
     conn = sqlite3.connect(warranty)
@@ -725,6 +779,10 @@ async def list_dell_warranty(
         timestamp = int(time.time()) + (int(expires_in) * 86400)
         query += "AND exp_epoch <= :timestamp\n"
         params["timestamp"] = timestamp
+
+    # Always sort by hostname for consistent output
+    query += " ORDER BY name"
+
     cursor.execute(query, params)
     results = cursor.fetchall()
     conn.close()
@@ -753,7 +811,11 @@ async def list_dell_warranty(
             idrac_gt,
             idrac_eq,
         )
-    if printjson:
+    if host_only:
+        # Print only hostnames, one per line
+        for row in results:
+            print(row[1])  # Index 1 is the hostname (name field)
+    elif printjson:
         print(json.dumps(results, indent=4))
     else:
         headers = [
@@ -800,7 +862,7 @@ async def refresh_dell_warranty(
     logger.info(f"Refreshing data for {svc_tag} ({name})")
 
     # Fetch fresh SNMP data
-    idrac_host = "mgmt-" + name
+    idrac_host = build_idrac_hostname(name)
     community_string = os.getenv("SNMP_COMMUNITY", "public")
     BIOS_OID = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8.1.1"
     IDRAC_FW_OID = "1.3.6.1.4.1.674.10892.5.1.1.8.0"
@@ -822,6 +884,44 @@ async def refresh_dell_warranty(
     )
 
     logger.info(f"Successfully refreshed record for {svc_tag}")
+
+
+async def discover_dell_system(hostname: str, warranty: str) -> Tuple[str, str]:
+    """
+    Logic for the 'discover' command. Queries a Dell iDRAC interface via SNMP
+    to automatically discover the service tag and model information.
+
+    Returns:
+        Tuple of (service_tag, model) discovered from the system
+    """
+    logger.info(f"Discovering system information for {hostname}")
+
+    idrac_host = build_idrac_hostname(hostname)
+    community_string = os.getenv("SNMP_COMMUNITY", "public")
+
+    # Dell OIDs for service tag and model
+    SERVICE_TAG_OID = ".1.3.6.1.4.1.674.10892.5.1.3.2.0"
+    MODEL_OID = ".1.3.6.1.4.1.674.10892.5.1.3.12.0"
+
+    logger.info(f"Querying {idrac_host} for service tag and model")
+
+    # Query service tag
+    service_tag = await get_snmp_value(idrac_host, community_string, SERVICE_TAG_OID)
+    if not service_tag:
+        raise SNMPError(f"Failed to retrieve service tag from {idrac_host}")
+
+    # Query model
+    model = await get_snmp_value(idrac_host, community_string, MODEL_OID)
+    if not model:
+        raise SNMPError(f"Failed to retrieve model from {idrac_host}")
+
+    # Strip "PowerEdge " prefix if present
+    if model.startswith("PowerEdge "):
+        model = model.replace("PowerEdge ", "")
+
+    logger.info(f"Discovered: Service Tag={service_tag}, Model={model}")
+
+    return (service_tag, model)
 
 
 async def remove_dell_warranty(
@@ -894,6 +994,7 @@ class CustomParser(argparse.ArgumentParser):
         if "required: command" in message:
             print("\nError: One of the following modes must be used:\n")
             print("    add (a)         Add a system")
+            print("    discover (d)    Discover system via SNMP")
             print("    edit (e)        Edit a system")
             print("    lookup (l)      Lookup a system")
             print("    refresh (rf)    Refresh SNMP and warranty data")
@@ -928,6 +1029,19 @@ async def main() -> None:
     parser_add.add_argument("-t", "--target", required=True, help="DNS Hostname")
     parser_add.add_argument(
         "-m", "--model", required=True, help="System model (e.g. R660)"
+    )
+
+    # --- DISCOVER COMMAND ---
+    parser_discover = subparsers.add_parser(
+        "discover", aliases=["d"], help="Discover system via SNMP"
+    )
+    parser_discover.add_argument(
+        "-t", "--target", required=True, help="DNS Hostname to discover"
+    )
+    parser_discover.add_argument(
+        "--add",
+        action="store_true",
+        help="Automatically add to database without prompting",
     )
 
     # --- EDIT COMMAND ---
@@ -966,6 +1080,9 @@ async def main() -> None:
     parser_list.add_argument("--expires_in", help="List hosts that expire in N days")
     parser_list.add_argument(
         "--json", action="store_true", help="Print list results in json format"
+    )
+    parser_list.add_argument(
+        "--host-only", action="store_true", help="Print only hostname (one per line)"
     )
     parser_list.add_argument("--regex", help="Target hostname regex to list")
     # bios args
@@ -1034,7 +1151,7 @@ async def main() -> None:
     global debug_output
     debug_output = debug
 
-    if args.svctag:
+    if hasattr(args, "svctag") and args.svctag:
         target_tag = args.svctag.upper()
         if not validate_service_tag(target_tag):
             raise ValidationError(
@@ -1059,7 +1176,38 @@ async def main() -> None:
     db_initialize(warranty)
 
     # Logic Routing
-    if args.command in ["add", "a"]:
+    if args.command in ["discover", "d"]:
+        # Discover system information via SNMP
+        discovered_tag, discovered_model = await discover_dell_system(
+            args.target, warranty
+        )
+
+        # Check if --add flag was provided
+        if hasattr(args, "add") and args.add:
+            # Auto-add without prompting
+            logger.info(f"Auto-adding system to database (--add flag provided)")
+            await add_dell_warranty(
+                discovered_tag, args.target, discovered_model, warranty
+            )
+        else:
+            # Prompt user
+            print(f"\nDiscovered system:")
+            print(f"  Hostname:    {args.target}")
+            print(f"  Service Tag: {discovered_tag}")
+            print(f"  Model:       {discovered_model}")
+            print()
+            response = input("Add to database? (y/n): ").strip().lower()
+
+            if response in ["y", "yes"]:
+                logger.info(f"User confirmed, adding system to database")
+                await add_dell_warranty(
+                    discovered_tag, args.target, discovered_model, warranty
+                )
+            else:
+                logger.info(f"User declined, not adding to database")
+                print("System not added to database")
+
+    elif args.command in ["add", "a"]:
         await add_dell_warranty(target_tag, args.target, args.model, warranty)
     elif args.command in ["edit", "e"]:
         await edit_dell_warranty(
@@ -1091,6 +1239,7 @@ async def main() -> None:
             args.idrac_eq,
             args.expires_in,
             args.json,
+            args.host_only,
             warranty,
         )
 
