@@ -9,7 +9,7 @@ Simple, portable, self-contained dynamic CLI inventory tool for managing Dell ba
 - Easily extensible to scripting and automation
   <!--toc:start-->
   - [🚀 Features](#-features)
-  - [🛠️ Prerequisites](#-prerequisites)
+  - [🛠️ Prerequisites](#%EF%B8%8F-prerequisites)
   - [📦 Installation](#-installation)
   - [📖 Usage](#-usage)
     - [1. Add a New System](#1-add-a-new-system)
