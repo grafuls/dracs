@@ -11,10 +11,10 @@ import sqlite3
 import sys
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from dotenv import load_dotenv
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 from pysnmp.hlapi.v1arch.asyncio import (
     SnmpDispatcher,
     CommunityData,
@@ -102,10 +102,11 @@ def validate_hostname(hostname: Optional[str]) -> bool:
         return False
     if len(hostname) > 253:
         return False
-    if not re.match(
-        r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$",
-        hostname,
-    ):
+    pattern = (
+        r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?"
+        r"(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
+    )
+    if not re.match(pattern, hostname):
         return False
     return True
 
@@ -125,9 +126,10 @@ def build_idrac_hostname(hostname: str) -> str:
     """
     Builds the iDRAC hostname from the target hostname using environment variables.
 
-    Uses DRACS_DNS_STRING and DRACS_DNS_MODE to determine how to construct the iDRAC FQDN.
-    - prefix mode: DRACS_DNS_STRING + hostname (e.g., "mgmt-" + "host01.example.com" = "mgmt-host01.example.com")
-    - suffix mode: hostname_part + DRACS_DNS_STRING + domain (e.g., "host01" + "-mm" + ".example.com" = "host01-mm.example.com")
+    Uses DRACS_DNS_STRING and DRACS_DNS_MODE to determine how to
+    construct the iDRAC FQDN.
+    - prefix mode: DRACS_DNS_STRING + hostname
+    - suffix mode: hostname_part + DRACS_DNS_STRING + domain
 
     Args:
         hostname: The target system hostname
@@ -136,7 +138,8 @@ def build_idrac_hostname(hostname: str) -> str:
         The constructed iDRAC hostname
 
     Raises:
-        ValidationError: If DRACS_DNS_MODE or DRACS_DNS_STRING are not properly configured
+        ValidationError: If DRACS_DNS_MODE or DRACS_DNS_STRING
+            are not properly configured
     """
     dns_string = os.getenv("DRACS_DNS_STRING")
     dns_mode = os.getenv("DRACS_DNS_MODE")
@@ -253,8 +256,7 @@ def db_initialize(dbpath: str) -> None:
     """
     with get_db_connection(dbpath) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS systems (
                 svc_tag TEXT PRIMARY KEY,
                 name TEXT,
@@ -264,8 +266,7 @@ def db_initialize(dbpath: str) -> None:
                 exp_date TEXT,
                 exp_epoch INTEGER
             )
-        """
-        )
+        """)
         conn.commit()
     return
 
@@ -301,7 +302,7 @@ def dell_api_warranty_date(svctag: Optional[str]) -> Tuple[int, str]:
     Authenticates with Dell's OAuth2 API and fetches the latest warranty
     expiration date for a given service tag. Returns a tuple of (epoch, string).
     """
-    if svctag == None:
+    if svctag is None:
         raise ValidationError("Service tag parameter is required")
 
     # Your credentials from TechDirect
@@ -315,7 +316,10 @@ def dell_api_warranty_date(svctag: Optional[str]) -> Tuple[int, str]:
             "Visit https://techdirect.dell.com to obtain API credentials"
         )
 
-    TOKEN_URL = "https://apigtwb2c.us.dell.com/auth/oauth/v2/token"  # Verify current URL in TechDirect docs
+    # Verify current URL in TechDirect docs
+    TOKEN_URL = (
+        "https://apigtwb2c.us.dell.com/auth/oauth/v2/token"
+    )
 
     # Fetch the token
     auth_response = requests.post(
@@ -425,7 +429,10 @@ async def add_dell_warranty(
             }
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO systems VALUES (:svc_tag, :name, :model, :idrac_version, :bios_version, :exp_date, :exp_epoch)
+                INSERT OR REPLACE INTO systems
+                VALUES (:svc_tag, :name, :model,
+                :idrac_version, :bios_version,
+                :exp_date, :exp_epoch)
             """,
                 data,
             )
@@ -436,7 +443,7 @@ async def add_dell_warranty(
         logger.info(
             f"Adding new record for {service_tag}, fetching warranty from Dell API"
         )
-        (h_epoch, h_date) = dell_api_warranty_date(service_tag)
+        h_epoch, h_date = dell_api_warranty_date(service_tag)
         result = {"svctag": service_tag}
         result["exp_date"] = h_date
         result["exp_epoch"] = h_epoch
@@ -462,7 +469,10 @@ async def add_dell_warranty(
             logger.debug(f"Inserting data: {data}")
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO systems VALUES (:svc_tag, :name, :model, :idrac_version, :bios_version, :exp_date, :exp_epoch)
+                INSERT OR REPLACE INTO systems
+                VALUES (:svc_tag, :name, :model,
+                :idrac_version, :bios_version,
+                :exp_date, :exp_epoch)
             """,
                 data,
             )
@@ -562,7 +572,10 @@ async def edit_dell_warranty(
         # Insert data
         cursor.execute(
             """
-            INSERT OR REPLACE INTO systems VALUES (:svc_tag, :name, :model, :idrac_version, :bios_version, :exp_date, :exp_epoch)
+            INSERT OR REPLACE INTO systems
+            VALUES (:svc_tag, :name, :model,
+            :idrac_version, :bios_version,
+            :exp_date, :exp_epoch)
         """,
             data,
         )
@@ -721,7 +734,8 @@ async def list_dell_warranty(
 ) -> None:
     """
     Logic for the 'list' command. Performs complex SQL queries based on filters
-    (model, regex, expiration time) and outputs results in JSON, Grid table, or hostname-only format.
+    (model, regex, expiration time) and outputs results in JSON,
+    Grid table, or hostname-only format.
     """
     db_initialize(warranty)
     conn = sqlite3.connect(warranty)
@@ -883,8 +897,8 @@ async def refresh_dell_warranty(
     logger.info(f"Updated SNMP values - BIOS: {bios_version}, iDRAC: {idrac_version}")
 
     # Fetch fresh warranty data from Dell
-    logger.info(f"Fetching updated warranty information from Dell API")
-    (exp_epoch, exp_date) = dell_api_warranty_date(svc_tag)
+    logger.info("Fetching updated warranty information from Dell API")
+    exp_epoch, exp_date = dell_api_warranty_date(svc_tag)
 
     logger.info(f"Updated warranty expiration: {exp_date}")
 
@@ -972,7 +986,6 @@ async def remove_dell_warranty(
         raise DatabaseError("Multiple matching records found in database")
     if len(results) == 1:
         hostname = results[0][1]
-        model = results[0][2]
         result = {"hostname": hostname}
         result["svc_tag"] = results[0][0]
         service_tag = result["svc_tag"]
@@ -1198,13 +1211,13 @@ async def main() -> None:
         # Check if --add flag was provided
         if hasattr(args, "add") and args.add:
             # Auto-add without prompting
-            logger.info(f"Auto-adding system to database (--add flag provided)")
+            logger.info("Auto-adding system to database (--add flag provided)")
             await add_dell_warranty(
                 discovered_tag, args.target, discovered_model, warranty
             )
         else:
             # Prompt user
-            print(f"\nDiscovered system:")
+            print("\nDiscovered system:")
             print(f"  Hostname:    {args.target}")
             print(f"  Service Tag: {discovered_tag}")
             print(f"  Model:       {discovered_model}")
@@ -1212,12 +1225,12 @@ async def main() -> None:
             response = input("Add to database? (y/n): ").strip().lower()
 
             if response in ["y", "yes"]:
-                logger.info(f"User confirmed, adding system to database")
+                logger.info("User confirmed, adding system to database")
                 await add_dell_warranty(
                     discovered_tag, args.target, discovered_model, warranty
                 )
             else:
-                logger.info(f"User declined, not adding to database")
+                logger.info("User declined, not adding to database")
                 print("System not added to database")
 
     elif args.command in ["add", "a"]:
@@ -1258,8 +1271,9 @@ async def main() -> None:
         )
 
 
-if __name__ == "__main__":
+def main_cli() -> None:
     load_dotenv()
+    global debug_output, debug
     debug_output = False
     try:
         debug = os.environ["DEBUG"]
@@ -1286,3 +1300,7 @@ if __name__ == "__main__":
     except DracsError as e:
         logger.error(f"Error: {e}")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main_cli()
