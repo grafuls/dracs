@@ -1,35 +1,6 @@
 #!/usr/bin/env python3
 
-<<<<<<< Updated upstream
-import argparse
-import asyncio
-import json
-import logging
-import os
-import re
-import requests
-import sqlite3
-import sys
-import time
-from contextlib import contextmanager
-from datetime import datetime
-from dotenv import load_dotenv
-from pathlib import Path
-from typing import List, Tuple, Optional
-from pysnmp.hlapi.v1arch.asyncio import (
-    SnmpDispatcher,
-    CommunityData,
-    UdpTransportTarget,
-    ObjectIdentity,
-    ObjectType,
-    get_cmd,
-)
-from tabulate import tabulate
-
-__version__ = "1.0.0"
-=======
 __version__ = "0.1.0"
->>>>>>> Stashed changes
 
 from dracs.exceptions import (  # noqa: F401
     APIError,
@@ -45,8 +16,9 @@ from dracs.validation import (  # noqa: F401
     validate_version,
 )
 from dracs.db import (  # noqa: F401
+    System,
     db_initialize,
-    get_db_connection,
+    get_session,
     query_by_hostname,
     query_by_service_tag,
     upsert_system,

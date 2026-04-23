@@ -84,7 +84,12 @@ async def main() -> None:
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose output"
     )
-    parser.add_argument("-w", "--warranty", help="Path to SQLite warranty.db")
+    parser.add_argument(
+        "-w",
+        "--warranty",
+        help="Database URL (e.g. sqlite:///warranty.db, postgresql://user:pass@host/db) "
+        "or path to SQLite file",
+    )
 
     # Create Subparsers (This makes -a, -e, -l, -r mutually exclusive)
     subparsers = parser.add_subparsers(dest="command", required=True)
