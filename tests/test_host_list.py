@@ -70,8 +70,8 @@ def test_read_host_list_invalid_hostname(host_list_file):
         read_host_list(host_list_file)
 
 
-@patch("dracs.discover_dell_system")
-@patch("dracs.add_dell_warranty")
+@patch("dracs.commands.discover_dell_system")
+@patch("dracs.commands.add_dell_warranty")
 def test_batch_discover_with_add(mock_add, mock_discover, host_list_file, capsys):
     mock_discover.side_effect = [
         ("TAG0001", "R660"),
@@ -92,8 +92,8 @@ def test_batch_discover_with_add(mock_add, mock_discover, host_list_file, capsys
     assert "0 failed" in output
 
 
-@patch("dracs.discover_dell_system")
-@patch("dracs.add_dell_warranty")
+@patch("dracs.commands.discover_dell_system")
+@patch("dracs.commands.add_dell_warranty")
 def test_batch_discover_without_add(mock_add, mock_discover, capsys):
     mock_discover.side_effect = [
         ("TAG0001", "R660"),
@@ -109,7 +109,7 @@ def test_batch_discover_without_add(mock_add, mock_discover, capsys):
     assert "Discovered" in output
 
 
-@patch("dracs.discover_dell_system")
+@patch("dracs.commands.discover_dell_system")
 def test_batch_discover_partial_failure(mock_discover, capsys):
     from dracs import SNMPError
 
