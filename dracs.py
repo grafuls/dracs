@@ -11,10 +11,10 @@ import sqlite3
 import sys
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from dotenv import load_dotenv
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 from pysnmp.hlapi.v1arch.asyncio import (
     SnmpDispatcher,
     CommunityData,
@@ -1258,8 +1258,9 @@ async def main() -> None:
         )
 
 
-if __name__ == "__main__":
+def main_cli() -> None:
     load_dotenv()
+    global debug_output, debug
     debug_output = False
     try:
         debug = os.environ["DEBUG"]
@@ -1286,3 +1287,7 @@ if __name__ == "__main__":
     except DracsError as e:
         logger.error(f"Error: {e}")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main_cli()
