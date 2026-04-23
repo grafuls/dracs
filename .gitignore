@@ -6,7 +6,6 @@ __pycache__/*
 *$py.class
 
 # linting
-.flake8
 
 # --- C extensions ---
 *.so
