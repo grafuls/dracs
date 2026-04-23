@@ -8,10 +8,10 @@ Simple, portable, self-contained dynamic CLI inventory tool for managing Dell ba
 - Supports regex and simple search patterns
 - Easily extensible to scripting and automation
   <!--toc:start-->
-  - [🚀 Features](#🚀-features)
-  - [🛠️ Prerequisites](#🛠️-prerequisites)
-  - [📦 Installation](#📦-installation)
-  - [📖 Usage](#📖-usage)
+  - [🚀 Features](#-features)
+  - [🛠️ Prerequisites](#-prerequisites)
+  - [📦 Installation](#-installation)
+  - [📖 Usage](#-usage)
     - [1. Add a New System](#1-add-a-new-system)
     - [2. Discover a System](#2-discover-a-system)
     - [3. List Inventory](#3-list-inventory)
@@ -20,11 +20,11 @@ Simple, portable, self-contained dynamic CLI inventory tool for managing Dell ba
     - [6. Refresh System Data](#6-refresh-system-data)
     - [7. Remove a System](#7-remove-a-system)
     - [Common Usage Patterns](#common-usage-patterns)
-  - [⚙️ Command Reference](#️-command-reference)
+  - [⚙️ Command Reference](#-command-reference)
     - [Global Arguments (apply to all commands)](#global-arguments-apply-to-all-commands)
     - [Command Aliases](#command-aliases)
     - [Filter Options for `list` Command](#filter-options-for-list-command)
-  - [📝 Tips & Troubleshooting](#📝-tips-troubleshooting)
+  - [📝 Tips & Troubleshooting](#-tips-troubleshooting)
   <!--toc:end-->
 
 ## 🚀 Features
