@@ -1,5 +1,6 @@
 import logging
 import os
+import socket
 from typing import Optional
 
 from pysnmp.hlapi.v1arch.asyncio import (
@@ -11,7 +12,7 @@ from pysnmp.hlapi.v1arch.asyncio import (
     get_cmd,
 )
 
-from dracs.exceptions import ValidationError
+from dracs.exceptions import SNMPError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,17 @@ async def get_snmp_value(target: str, community: str, oid: str) -> Optional[str]
     """
     snmp_dispatcher = SnmpDispatcher()
 
-    # Standard SNMP v2c Get Command
+    try:
+        udp_target = await UdpTransportTarget.create((target, 161))
+    except socket.gaierror as e:
+        raise SNMPError(f"DNS resolution failed for {target}: {e}")
+    except OSError as e:
+        raise SNMPError(f"Network error connecting to {target}: {e}")
+
     errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
         snmp_dispatcher,
         CommunityData(community),
-        await UdpTransportTarget.create((target, 161)),
+        udp_target,
         ObjectType(ObjectIdentity(oid)),
     )
 
