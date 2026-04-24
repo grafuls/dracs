@@ -137,6 +137,25 @@ def test_batch_discover_partial_failure(mock_discover, capsys):
     assert "Connection timeout" in output
 
 
+@patch("dracs.commands.discover_dell_system")
+def test_batch_discover_dns_resolution_failure(mock_discover, capsys):
+    from dracs import SNMPError
+
+    mock_discover.side_effect = [
+        SNMPError("DNS resolution failed for mgmt-nonexistent.invalid: [Errno -2] Name or service not known"),
+        ("TAG0002", "R650"),
+    ]
+
+    hosts = ["nonexistent.invalid", "server02.example.com"]
+    asyncio.run(discover_dell_systems_batch(hosts, "/tmp/test.db", auto_add=False, show_discovered=False))
+
+    output = capsys.readouterr().out
+    assert "Succeeded: 1" in output
+    assert "Failed: 1" in output
+    assert "Total: 2 hosts" in output
+    assert "DNS resolution failed" in output
+
+
 @patch("dracs.commands.dell_api_warranty_date")
 @patch("dracs.commands.discover_dell_system")
 @patch("dracs.commands.add_dell_warranty")
