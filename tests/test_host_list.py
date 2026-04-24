@@ -70,19 +70,27 @@ def test_read_host_list_invalid_hostname(host_list_file):
         read_host_list(host_list_file)
 
 
+@patch("dracs.commands.dell_api_warranty_date")
 @patch("dracs.commands.discover_dell_system")
 @patch("dracs.commands.add_dell_warranty")
-def test_batch_discover_with_add(mock_add, mock_discover, host_list_file, capsys):
+def test_batch_discover_with_add(
+    mock_add, mock_discover, mock_warranty, host_list_file, capsys
+):
     mock_discover.side_effect = [
         ("TAG0001", "R660"),
         ("TAG0002", "R650"),
     ]
+    mock_warranty.return_value = {
+        "TAG0001": (1700000000, "November 14, 2023"),
+        "TAG0002": (1700000000, "November 14, 2023"),
+    }
     mock_add.return_value = None
 
     hosts = ["server01.example.com", "server02.example.com"]
     asyncio.run(discover_dell_systems_batch(hosts, "/tmp/test.db", auto_add=True))
 
     assert mock_discover.call_count == 2
+    mock_warranty.assert_called_once_with(["TAG0001", "TAG0002"])
     assert mock_add.call_count == 2
 
     output = capsys.readouterr().out
